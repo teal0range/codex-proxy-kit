@@ -13,6 +13,10 @@ TARGET_MODEL="${CODEX_VLLM_TARGET_MODEL:-kimi-k2.5}"
 UPSTREAM="${CODEX_VLLM_UPSTREAM:-http://127.0.0.1:8000}"
 PROXY_PID=
 TEMP_CONFIG=
+COMMON_ARGS=()
+
+# Best-effort cleanup for stale Codex arg0 temp directories left by previous runs.
+find "${TMPDIR:-/tmp}" -maxdepth 1 -type d -name 'codex-arg0*' -exec rm -rf {} + 2>/dev/null || true
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -91,11 +95,27 @@ if [[ $# -gt 0 && "$1" == "codex" ]]; then
   shift
 fi
 
-exec codex \
-  -c "model_provider=\"${PROVIDER}\"" \
-  -c "model_providers.${PROVIDER}.name=\"${PROVIDER}\"" \
-  -c "model_providers.${PROVIDER}.base_url=\"http://127.0.0.1:${PORT}/v1\"" \
-  -c "model_providers.${PROVIDER}.env_key=\"OPENAI_API_KEY\"" \
-  -c 'model_providers.'"${PROVIDER}"'.wire_api="responses"' \
-  -m "$INITIAL_MODEL" \
-  "$@"
+COMMON_ARGS=(
+  -c "model_provider=\"${PROVIDER}\""
+  -c "model_providers.${PROVIDER}.name=\"${PROVIDER}\""
+  -c "model_providers.${PROVIDER}.base_url=\"http://127.0.0.1:${PORT}/v1\""
+  -c "model_providers.${PROVIDER}.env_key=\"OPENAI_API_KEY\""
+  -c 'model_providers.'"${PROVIDER}"'.wire_api="responses"'
+  -m "$INITIAL_MODEL"
+)
+
+if [[ $# -eq 0 ]]; then
+  exec codex "${COMMON_ARGS[@]}"
+fi
+
+case "$1" in
+  exec|review|resume|help)
+    exec codex "${COMMON_ARGS[@]}" "$@"
+    ;;
+  -*)
+    exec codex "${COMMON_ARGS[@]}" "$@"
+    ;;
+  *)
+    exec codex "${COMMON_ARGS[@]}" exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox "$@"
+    ;;
+esac

@@ -41,6 +41,8 @@ Older or newer versions may still work, but the vLLM compatibility proxy is inte
 - exposes all configured models through one `/v1/models` endpoint
 - lets Codex switch models from the interactive `/model` menu
 - routes each request by `body.model` to the matching upstream API
+- launches interactive TUI when called without a prompt or subcommand
+- treats plain trailing arguments as `codex exec` input for non-interactive runs
 - normalizes multi-turn `input` items for `Responses API`
 - converts tool names like `functions.exec_command` to bare names like `exec_command`
 - rewrites tool-markup text into structured `function_call` items
@@ -150,6 +152,12 @@ For `codex-cli 0.116.0`, this mapping is intentional:
 
 This is the most reliable way to make the built-in `/model` menu switch real non-OpenAI backends without patching Codex itself.
 
+If you use a custom backend name such as `kimi-k2.5` directly as the visible `name`, `codex-cli 0.116.0` can emit a metadata fallback warning. The recommended pattern is:
+
+- use a Codex-recognized display name in `name`
+- route to the real backend through `target_model`
+- carry backend-specific limits in fields such as `context_window`
+
 Each model entry controls:
 
 - the model name shown inside Codex `/model`
@@ -162,9 +170,7 @@ Each model entry controls:
 Start via wrapper:
 
 ```bash
-codex-switch \
-  --config ./profiles/login002.json \
-  exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox
+codex-switch
 ```
 
 Wrapper behavior:
@@ -173,6 +179,20 @@ Wrapper behavior:
 - points Codex at that proxy with a temporary custom provider override
 - starts on the profile's `default_model`
 - exposes every configured model to Codex so you can switch later with `/model`
+
+Interactive examples:
+
+```bash
+codex-switch
+codex-switch --config ./profiles/login002.json
+```
+
+Non-interactive examples:
+
+```bash
+codex-switch "list files in the current directory"
+codex-switch exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox "fix failing tests"
+```
 
 Default environment variables:
 
@@ -255,6 +275,12 @@ That is exactly what `codex_vllm_responses_proxy.py` is designed to normalize. C
 ### `/model` does not show your expected model list
 
 Check the config file passed with `--config` or `CODEX_VLLM_MODELS_CONFIG`. The proxy only exposes models defined there.
+
+For `codex-cli 0.116.0`, stable `/model` behavior is best when the visible `name` values are Codex-recognized model ids and the real backend model is carried in `target_model`.
+
+### Warning about stale `codex-arg0` temp directories
+
+The wrapper performs a best-effort cleanup of stale `${TMPDIR:-/tmp}/codex-arg0*` directories before launch. This is only meant to quiet abandoned temp-dir warnings from previous Codex runs.
 
 ### Local web search behavior is unclear
 
