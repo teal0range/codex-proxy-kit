@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PROVIDER="${CODEX_VLLM_PROVIDER:-localvllm}"
-PORT="${CODEX_VLLM_LISTEN_PORT:-18001}"
+PORT="${CODEX_VLLM_LISTEN_PORT:-18011}"
 LOG_DIR="${CODEX_VLLM_LOG_DIR:-$HOME/.local/share/codex-vllm-proxy/logs}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROXY_BIN="$SCRIPT_DIR/codex_vllm_responses_proxy.py"

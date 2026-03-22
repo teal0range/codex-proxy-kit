@@ -542,7 +542,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--listen-host", default="127.0.0.1")
-    parser.add_argument("--listen-port", type=int, default=18001)
+    parser.add_argument("--listen-port", type=int, default=18011)
     parser.add_argument("--log-dir", default=str(Path.home() / ".local" / "share" / "codex-vllm-proxy" / "logs"))
     parser.add_argument("--models-config", required=True)
     parser.add_argument("--timeout", type=int, default=600)

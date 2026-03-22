@@ -167,7 +167,7 @@ codex-switch \
 
 Wrapper behavior:
 
-- starts the compatibility proxy on `127.0.0.1:18001` if needed
+- starts the compatibility proxy on `127.0.0.1:18011` if needed
 - points Codex at that proxy with a temporary custom provider override
 - starts on the profile's `default_model`
 - exposes every configured model to Codex so you can switch later with `/model`
@@ -177,7 +177,7 @@ Default environment variables:
 - `CODEX_VLLM_PROVIDER=localvllm`
 - `CODEX_VLLM_MODELS_CONFIG=.../login002.json`
 - `CODEX_VLLM_INITIAL_MODEL=gpt-5.4`
-- `CODEX_VLLM_LISTEN_PORT=18001`
+- `CODEX_VLLM_LISTEN_PORT=18011`
 - `CODEX_VLLM_LOG_DIR=~/.local/share/codex-vllm-proxy/logs`
 
 Inside Codex, switch models interactively with:
