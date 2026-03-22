@@ -1,29 +1,33 @@
 {
-  "default_model": "kimi-k2.5",
+  "default_model": "gpt-5.4",
   "models": [
     {
-      "name": "kimi-k2.5",
+      "name": "gpt-5.4",
       "target_model": "kimi-k2.5",
       "upstream_base": "http://gpuh201:8000",
-      "context_window": 262144
+      "context_window": 262144,
+      "aliases": ["kimi-k2.5"]
     },
     {
-      "name": "glm-5",
+      "name": "gpt-5.2",
       "target_model": "glm-5",
       "upstream_base": "http://gpuh202:8000",
-      "context_window": 131072
+      "context_window": 131072,
+      "aliases": ["glm-5"]
     },
     {
-      "name": "deepseek-v3.2",
+      "name": "gpt-5.1-codex-max",
       "target_model": "deepseek-v3.2",
       "upstream_base": "http://gpuh203:8000",
-      "context_window": 163840
+      "context_window": 163840,
+      "aliases": ["deepseek-v3.2"]
     },
     {
-      "name": "minimax-m2.5",
+      "name": "gpt-5.1-codex-mini",
       "target_model": "minimax-m2.5",
       "upstream_base": "http://gpuh204:8000",
-      "context_window": 196608
+      "context_window": 196608,
+      "aliases": ["minimax-m2.5"]
     }
   ]
 }

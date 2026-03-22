@@ -105,35 +105,48 @@ Example profile:
 
 ```json
 {
-  "default_model": "kimi-k2.5",
+  "default_model": "gpt-5.4",
   "models": [
     {
-      "name": "kimi-k2.5",
+      "name": "gpt-5.4",
       "target_model": "kimi-k2.5",
       "upstream_base": "http://gpuh201:8000",
-      "context_window": 262144
+      "context_window": 262144,
+      "aliases": ["kimi-k2.5"]
     },
     {
-      "name": "glm-5",
+      "name": "gpt-5.2",
       "target_model": "glm-5",
       "upstream_base": "http://gpuh202:8000",
-      "context_window": 131072
+      "context_window": 131072,
+      "aliases": ["glm-5"]
     },
     {
-      "name": "deepseek-v3.2",
+      "name": "gpt-5.1-codex-max",
       "target_model": "deepseek-v3.2",
       "upstream_base": "http://gpuh203:8000",
-      "context_window": 163840
+      "context_window": 163840,
+      "aliases": ["deepseek-v3.2"]
     },
     {
-      "name": "minimax-m2.5",
+      "name": "gpt-5.1-codex-mini",
       "target_model": "minimax-m2.5",
       "upstream_base": "http://gpuh204:8000",
-      "context_window": 196608
+      "context_window": 196608,
+      "aliases": ["minimax-m2.5"]
     }
   ]
 }
 ```
+
+For `codex-cli 0.116.0`, this mapping is intentional:
+
+- `gpt-5.4` -> `kimi-k2.5`
+- `gpt-5.2` -> `glm-5`
+- `gpt-5.1-codex-max` -> `deepseek-v3.2`
+- `gpt-5.1-codex-mini` -> `minimax-m2.5`
+
+This is the most reliable way to make the built-in `/model` menu switch real non-OpenAI backends without patching Codex itself.
 
 Each model entry controls:
 
@@ -163,7 +176,7 @@ Default environment variables:
 
 - `CODEX_VLLM_PROVIDER=localvllm`
 - `CODEX_VLLM_MODELS_CONFIG=.../login002.json`
-- `CODEX_VLLM_INITIAL_MODEL=kimi-k2.5`
+- `CODEX_VLLM_INITIAL_MODEL=gpt-5.4`
 - `CODEX_VLLM_LISTEN_PORT=18001`
 - `CODEX_VLLM_LOG_DIR=~/.local/share/codex-vllm-proxy/logs`
 
@@ -176,7 +189,7 @@ Inside Codex, switch models interactively with:
 or directly:
 
 ```text
-/model deepseek-v3.2
+/model gpt-5.1-codex-max
 ```
 
 ### 3. Log official OpenAI Codex traffic locally
