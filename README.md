@@ -95,7 +95,7 @@ chmod +x scripts/codex-vllm scripts/codex-switch scripts/codex-openai-log \
 
 ### 1. Configure multiple upstream models
 
-Copy the example profile and edit the real upstream API addresses:
+You can either use the bundled `login002` profile directly, or copy it and edit your own:
 
 ```bash
 cp profiles/login002.example.json ~/.config/codex-proxy-kit/login002.json
@@ -114,9 +114,22 @@ Example profile:
       "context_window": 262144
     },
     {
-      "name": "deepseek-r1",
-      "target_model": "deepseek-r1",
-      "upstream_base": "http://YOUR_DEEPSEEK_HOST:8000"
+      "name": "glm-5",
+      "target_model": "glm-5",
+      "upstream_base": "http://gpuh202:8000",
+      "context_window": 131072
+    },
+    {
+      "name": "deepseek-v3.2",
+      "target_model": "deepseek-v3.2",
+      "upstream_base": "http://gpuh203:8000",
+      "context_window": 163840
+    },
+    {
+      "name": "minimax-m2.5",
+      "target_model": "minimax-m2.5",
+      "upstream_base": "http://gpuh204:8000",
+      "context_window": 196608
     }
   ]
 }
@@ -135,7 +148,7 @@ Start via wrapper:
 
 ```bash
 codex-switch \
-  --config ~/.config/codex-proxy-kit/login002.json \
+  --config ./profiles/login002.json \
   exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox
 ```
 
@@ -163,7 +176,7 @@ Inside Codex, switch models interactively with:
 or directly:
 
 ```text
-/model deepseek-r1
+/model deepseek-v3.2
 ```
 
 ### 3. Log official OpenAI Codex traffic locally
