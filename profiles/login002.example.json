@@ -1,0 +1,29 @@
+{
+  "default_model": "kimi-k2.5",
+  "models": [
+    {
+      "name": "kimi-k2.5",
+      "target_model": "kimi-k2.5",
+      "upstream_base": "http://gpuh201:8000",
+      "context_window": 262144
+    },
+    {
+      "name": "deepseek-r1",
+      "target_model": "deepseek-r1",
+      "upstream_base": "http://REPLACE_ME_DEEPSEEK_HOST:8000",
+      "context_window": 131072
+    },
+    {
+      "name": "qwen-max",
+      "target_model": "qwen-max",
+      "upstream_base": "http://REPLACE_ME_QWEN_HOST:8000",
+      "context_window": 131072
+    },
+    {
+      "name": "glm-4.5",
+      "target_model": "glm-4.5",
+      "upstream_base": "http://REPLACE_ME_GLM_HOST:8000",
+      "context_window": 131072
+    }
+  ]
+}

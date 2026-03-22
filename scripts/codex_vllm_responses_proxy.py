@@ -349,6 +349,51 @@ def normalize_responses_payload(payload):
     return payload, changed
 
 
+def load_models_config(path):
+    cfg_path = Path(path)
+    data = json.loads(cfg_path.read_text(encoding="utf-8"))
+    raw_models = data.get("models") or []
+    if not raw_models:
+        raise SystemExit(f"models config is empty: {cfg_path}")
+
+    models = []
+    lookup = {}
+    for idx, raw in enumerate(raw_models):
+        name = raw.get("name")
+        if not name:
+            raise SystemExit(f"models[{idx}] missing name")
+        upstream_base = (raw.get("upstream_base") or "").rstrip("/")
+        if not upstream_base:
+            raise SystemExit(f"models[{idx}] missing upstream_base")
+        target_model = raw.get("target_model") or name
+        aliases = list(raw.get("aliases") or [])
+        model = {
+            "name": name,
+            "target_model": target_model,
+            "upstream_base": upstream_base,
+            "context_window": raw.get("context_window"),
+            "owned_by": raw.get("owned_by", "codex-proxy-kit"),
+            "normalize_responses": raw.get("normalize_responses", True),
+            "rewrite_response_output": raw.get("rewrite_response_output", True),
+            "synthesize_stream": raw.get("synthesize_stream", True),
+            "aliases": aliases,
+            "extra_model_fields": raw.get("extra_model_fields") or {},
+        }
+        models.append(model)
+        lookup[name] = model
+        for alias in aliases:
+            lookup[alias] = model
+
+    default_model = data.get("default_model") or models[0]["name"]
+    if default_model not in lookup:
+        raise SystemExit(f"default_model not found in models: {default_model}")
+    return {
+        "models": models,
+        "lookup": lookup,
+        "default_model": default_model,
+    }
+
+
 class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
 
@@ -367,16 +412,42 @@ class ProxyHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
         self.wfile.flush()
 
+    def _route_for_model(self, requested_model):
+        route = self.server.models_lookup.get(requested_model)
+        if route:
+            return route
+        return self.server.models_lookup[self.server.default_model]
+
+    def _build_models_payload(self):
+        data = []
+        for model in self.server.models:
+            item = {
+                "id": model["name"],
+                "object": "model",
+                "created": 0,
+                "owned_by": model["owned_by"],
+                "root": model["name"],
+            }
+            if model.get("context_window") is not None:
+                item["context_window"] = model["context_window"]
+            item.update(model["extra_model_fields"])
+            data.append(item)
+        return {"object": "list", "data": data}
+
     def do_GET(self):
         try:
-            upstream_url = urljoin(self.server.upstream_base, self.path)
+            if self.path == "/v1/models":
+                body = json.dumps(self._build_models_payload(), ensure_ascii=False).encode("utf-8")
+                self._send_bytes(200, body)
+                return
+            if self.path == "/healthz":
+                self._send_bytes(200, b'{"ok":true}')
+                return
+            route = self.server.models[0]
+            upstream_url = urljoin(route["upstream_base"] + "/", self.path.lstrip("/"))
             req = urllib.request.Request(upstream_url, method="GET")
             with urllib.request.urlopen(req, timeout=self.server.timeout_seconds) as resp:
-                body = resp.read()
-                ctype = resp.headers.get("Content-Type", "application/json")
-                if self.path == "/v1/models":
-                    body = self.server.patch_models_response(body)
-                self._send_bytes(resp.status, body, ctype)
+                self._send_bytes(resp.status, resp.read(), resp.headers.get("Content-Type", "application/json"))
         except urllib.error.HTTPError as e:
             self._send_bytes(e.code, e.read(), e.headers.get("Content-Type", "application/json"))
         except Exception as e:
@@ -396,41 +467,50 @@ class ProxyHandler(BaseHTTPRequestHandler):
         except Exception:
             body = None
 
-        client_wants_stream = bool(isinstance(body, dict) and body.get("stream"))
+        route = self.server.models_lookup[self.server.default_model]
+        requested_model = None
+        client_wants_stream = False
+        if isinstance(body, dict):
+            requested_model = body.get("model") or self.server.default_model
+            route = self._route_for_model(requested_model)
+            client_wants_stream = bool(body.get("stream"))
+
         if self.path in ("/v1/responses", "/v1/chat/completions") and isinstance(body, dict):
-            if body.get("model") == self.server.alias_model:
-                body["model"] = self.server.target_model
-            if self.path == "/v1/responses":
-                if client_wants_stream:
+            body["model"] = route["target_model"]
+            if self.path == "/v1/responses" and route["normalize_responses"]:
+                if client_wants_stream and route["synthesize_stream"]:
                     body["stream"] = False
                 body, changed = normalize_responses_payload(body)
                 if changed:
                     preview = str(body.get("input", ""))[:1000]
+                    self.server.log(f"MODEL {requested_model} -> {route['target_model']} @ {route['upstream_base']}")
                     self.server.log(f"NORMALIZED /v1/responses input\n{preview}\n---")
             raw = json.dumps(body, ensure_ascii=False).encode("utf-8")
 
-        upstream_url = urljoin(self.server.upstream_base, self.path)
+        upstream_url = urljoin(route["upstream_base"] + "/", self.path.lstrip("/"))
         req = urllib.request.Request(upstream_url, data=raw, headers=upstream_headers, method="POST")
         try:
             with urllib.request.urlopen(req, timeout=self.server.timeout_seconds) as resp:
                 ctype = resp.headers.get("Content-Type", "application/json")
-                body = resp.read()
+                response_body = resp.read()
                 if self.path == "/v1/responses" and "application/json" in ctype:
                     try:
-                        obj = rewrite_response_output_for_codex(json.loads(body.decode("utf-8")))
-                        body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
-                        if client_wants_stream:
-                            body = build_sse_from_response(obj)
+                        obj = json.loads(response_body.decode("utf-8"))
+                        if route["rewrite_response_output"]:
+                            obj = rewrite_response_output_for_codex(obj)
+                        response_body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+                        if client_wants_stream and route["synthesize_stream"]:
+                            response_body = build_sse_from_response(obj)
                             ctype = "text/event-stream; charset=utf-8"
                     except Exception as e:
                         self.server.log(f"REWRITE /v1/responses output failed {e!r}")
                 self.send_response(resp.status)
                 self.send_header("Content-Type", ctype)
                 self.send_header("Cache-Control", resp.headers.get("Cache-Control", "no-cache"))
-                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Content-Length", str(len(response_body)))
                 self.send_header("Connection", "close")
                 self.end_headers()
-                self.wfile.write(body)
+                self.wfile.write(response_body)
                 self.wfile.flush()
         except urllib.error.HTTPError as e:
             body = e.read()
@@ -443,18 +523,17 @@ class ProxyHandler(BaseHTTPRequestHandler):
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--upstream-base", default="http://127.0.0.1:8000")
     parser.add_argument("--listen-host", default="127.0.0.1")
     parser.add_argument("--listen-port", type=int, default=18001)
     parser.add_argument("--log-dir", default=str(Path.home() / ".local" / "share" / "codex-vllm-proxy" / "logs"))
-    parser.add_argument("--alias-model", default="gpt-5.4")
-    parser.add_argument("--target-model", default="kimi-k2.5")
+    parser.add_argument("--models-config", required=True)
     parser.add_argument("--timeout", type=int, default=600)
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
+    model_cfg = load_models_config(args.models_config)
     log_dir = Path(args.log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / "proxy.log"
@@ -463,29 +542,20 @@ def main():
         with log_path.open("a", encoding="utf-8") as f:
             f.write(msg.rstrip() + "\n")
 
-    def patch_models_response(body):
-        try:
-            obj = json.loads(body.decode("utf-8"))
-            data = obj.get("data") or []
-            if data and not any(m.get("id") == args.alias_model for m in data if isinstance(m, dict)):
-                alias = dict(data[0])
-                alias["id"] = args.alias_model
-                alias["root"] = args.alias_model
-                obj["data"] = [alias] + data
-                return json.dumps(obj, ensure_ascii=False).encode("utf-8")
-        except Exception as e:
-            log(f"GET /v1/models alias patch failed {e!r}")
-        return body
-
     server = ThreadingHTTPServer((args.listen_host, args.listen_port), ProxyHandler)
-    server.upstream_base = args.upstream_base
-    server.alias_model = args.alias_model
-    server.target_model = args.target_model
+    server.models = model_cfg["models"]
+    server.models_lookup = model_cfg["lookup"]
+    server.default_model = model_cfg["default_model"]
     server.timeout_seconds = args.timeout
     server.log = log
-    server.patch_models_response = patch_models_response
-    log(f"Starting proxy on http://{args.listen_host}:{args.listen_port} -> {args.upstream_base}")
-    server.serve_forever()
+    log(
+        f"Starting proxy on http://{args.listen_host}:{args.listen_port} "
+        f"with models={[model['name'] for model in server.models]}"
+    )
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        log("Proxy stopped by KeyboardInterrupt")
 
 
 if __name__ == "__main__":

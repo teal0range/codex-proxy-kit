@@ -2,19 +2,22 @@
 set -euo pipefail
 
 PROVIDER="${CODEX_VLLM_PROVIDER:-localvllm}"
-ALIAS_MODEL="${CODEX_VLLM_ALIAS_MODEL:-gpt-5.4}"
-TARGET_MODEL="${CODEX_VLLM_TARGET_MODEL:-kimi-k2.5}"
-UPSTREAM="${CODEX_VLLM_UPSTREAM:-http://127.0.0.1:8000}"
 PORT="${CODEX_VLLM_LISTEN_PORT:-18001}"
 LOG_DIR="${CODEX_VLLM_LOG_DIR:-$HOME/.local/share/codex-vllm-proxy/logs}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROXY_BIN="$SCRIPT_DIR/codex_vllm_responses_proxy.py"
+CONFIG_PATH="${CODEX_VLLM_MODELS_CONFIG:-$SCRIPT_DIR/../profiles/login002.example.json}"
+INITIAL_MODEL="${CODEX_VLLM_INITIAL_MODEL:-}"
+TARGET_MODEL="${CODEX_VLLM_TARGET_MODEL:-kimi-k2.5}"
+UPSTREAM="${CODEX_VLLM_UPSTREAM:-http://127.0.0.1:8000}"
 PROXY_PID=
+TEMP_CONFIG=
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --provider) PROVIDER="$2"; shift 2 ;;
-    --alias-model) ALIAS_MODEL="$2"; shift 2 ;;
+    --config) CONFIG_PATH="$2"; shift 2 ;;
+    --model) INITIAL_MODEL="$2"; shift 2 ;;
     --target-model) TARGET_MODEL="$2"; shift 2 ;;
     --upstream) UPSTREAM="$2"; shift 2 ;;
     --port) PORT="$2"; shift 2 ;;
@@ -30,8 +33,38 @@ cleanup() {
     kill "$PROXY_PID" >/dev/null 2>&1 || true
     wait "$PROXY_PID" >/dev/null 2>&1 || true
   fi
+  if [[ -n "${TEMP_CONFIG:-}" && -f "${TEMP_CONFIG:-}" ]]; then
+    rm -f "$TEMP_CONFIG"
+  fi
 }
 trap cleanup EXIT
+
+if [[ ! -f "$CONFIG_PATH" ]]; then
+  TEMP_CONFIG="$(mktemp)"
+  cat >"$TEMP_CONFIG" <<EOF
+{
+  "default_model": "${TARGET_MODEL}",
+  "models": [
+    {
+      "name": "${TARGET_MODEL}",
+      "target_model": "${TARGET_MODEL}",
+      "upstream_base": "${UPSTREAM}"
+    }
+  ]
+}
+EOF
+  CONFIG_PATH="$TEMP_CONFIG"
+fi
+
+if [[ -z "$INITIAL_MODEL" ]]; then
+  INITIAL_MODEL="$(python3 - <<PY
+import json
+from pathlib import Path
+cfg = json.loads(Path("$CONFIG_PATH").read_text(encoding="utf-8"))
+print(cfg.get("default_model") or cfg["models"][0]["name"])
+PY
+)"
+fi
 
 if ! python3 - <<PY >/dev/null 2>&1
 import socket
@@ -47,11 +80,9 @@ finally:
 PY
 then
   "$PROXY_BIN" \
-    --upstream-base "$UPSTREAM" \
+    --models-config "$CONFIG_PATH" \
     --listen-port "$PORT" \
-    --log-dir "$LOG_DIR" \
-    --alias-model "$ALIAS_MODEL" \
-    --target-model "$TARGET_MODEL" &
+    --log-dir "$LOG_DIR" &
   PROXY_PID=$!
 fi
 
@@ -65,5 +96,5 @@ exec codex \
   -c "model_providers.${PROVIDER}.base_url=\"http://127.0.0.1:${PORT}/v1\"" \
   -c "model_providers.${PROVIDER}.env_key=\"OPENAI_API_KEY\"" \
   -c 'model_providers.'"${PROVIDER}"'.wire_api="responses"' \
-  -m "$ALIAS_MODEL" \
+  -m "$INITIAL_MODEL" \
   "$@"

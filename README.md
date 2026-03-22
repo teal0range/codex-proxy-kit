@@ -12,7 +12,9 @@ The repo contains two independent tools plus lightweight wrappers:
 - [`scripts/codex_openai_log_proxy.py`](/mnt/e/code/codex-proxy-kit/scripts/codex_openai_log_proxy.py)
   - transparent local logging proxy for official OpenAI traffic
 - [`scripts/codex-vllm`](/mnt/e/code/codex-proxy-kit/scripts/codex-vllm)
-  - convenience wrapper for the vLLM compatibility proxy
+  - config-driven wrapper for the vLLM compatibility proxy
+- [`scripts/codex-switch`](/mnt/e/code/codex-proxy-kit/scripts/codex-switch)
+  - alias for `codex-vllm`, intended for interactive multi-model use
 - [`scripts/codex-openai-log`](/mnt/e/code/codex-proxy-kit/scripts/codex-openai-log)
   - convenience wrapper for the OpenAI logging proxy
 
@@ -35,8 +37,10 @@ Older or newer versions may still work, but the vLLM compatibility proxy is inte
 
 ### `codex-vllm`
 
-- rewrites alias model ids such as `gpt-5.4` to a target backend model
-- patches `/v1/models` so Codex can see a friendly alias model id
+- reads a JSON model-routing config
+- exposes all configured models through one `/v1/models` endpoint
+- lets Codex switch models from the interactive `/model` menu
+- routes each request by `body.model` to the matching upstream API
 - normalizes multi-turn `input` items for `Responses API`
 - converts tool names like `functions.exec_command` to bare names like `exec_command`
 - rewrites tool-markup text into structured `function_call` items
@@ -70,6 +74,7 @@ From inside the repo:
 That installs wrapper commands into `~/.local/bin`:
 
 - `codex-vllm`
+- `codex-switch`
 - `codex-openai-log`
 
 If `~/.local/bin` is not already on your `PATH`, add:
@@ -82,22 +87,55 @@ export PATH="$HOME/.local/bin:$PATH"
 
 ```bash
 python3 -m pip install -r requirements.txt
-chmod +x scripts/codex-vllm scripts/codex-openai-log \
+chmod +x scripts/codex-vllm scripts/codex-switch scripts/codex-openai-log \
   scripts/codex_vllm_responses_proxy.py scripts/codex_openai_log_proxy.py
 ```
 
 ## Quick Start
 
-### 1. Run Codex against a vLLM backend
+### 1. Configure multiple upstream models
+
+Copy the example profile and edit the real upstream API addresses:
+
+```bash
+cp profiles/login002.example.json ~/.config/codex-proxy-kit/login002.json
+```
+
+Example profile:
+
+```json
+{
+  "default_model": "kimi-k2.5",
+  "models": [
+    {
+      "name": "kimi-k2.5",
+      "target_model": "kimi-k2.5",
+      "upstream_base": "http://gpuh201:8000",
+      "context_window": 262144
+    },
+    {
+      "name": "deepseek-r1",
+      "target_model": "deepseek-r1",
+      "upstream_base": "http://YOUR_DEEPSEEK_HOST:8000"
+    }
+  ]
+}
+```
+
+Each model entry controls:
+
+- the model name shown inside Codex `/model`
+- the actual upstream `target_model`
+- the upstream API base URL
+- optional metadata like `context_window`
+
+### 2. Run Codex against the aggregated proxy
 
 Start via wrapper:
 
 ```bash
-codex-vllm \
-  --provider myvllm \
-  --alias-model gpt-5.4 \
-  --target-model kimi-k2.5 \
-  --upstream http://127.0.0.1:8000 \
+codex-switch \
+  --config ~/.config/codex-proxy-kit/login002.json \
   exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox
 ```
 
@@ -105,18 +143,30 @@ Wrapper behavior:
 
 - starts the compatibility proxy on `127.0.0.1:18001` if needed
 - points Codex at that proxy with a temporary custom provider override
-- keeps the visible model id as `gpt-5.4` by default while routing to the target backend model
+- starts on the profile's `default_model`
+- exposes every configured model to Codex so you can switch later with `/model`
 
 Default environment variables:
 
 - `CODEX_VLLM_PROVIDER=localvllm`
-- `CODEX_VLLM_ALIAS_MODEL=gpt-5.4`
-- `CODEX_VLLM_TARGET_MODEL=kimi-k2.5`
-- `CODEX_VLLM_UPSTREAM=http://127.0.0.1:8000`
+- `CODEX_VLLM_MODELS_CONFIG=.../login002.json`
+- `CODEX_VLLM_INITIAL_MODEL=kimi-k2.5`
 - `CODEX_VLLM_LISTEN_PORT=18001`
 - `CODEX_VLLM_LOG_DIR=~/.local/share/codex-vllm-proxy/logs`
 
-### 2. Log official OpenAI Codex traffic locally
+Inside Codex, switch models interactively with:
+
+```text
+/model
+```
+
+or directly:
+
+```text
+/model deepseek-r1
+```
+
+### 3. Log official OpenAI Codex traffic locally
 
 Run:
 
@@ -144,9 +194,12 @@ Each request produces:
 ```text
 codex-proxy-kit/
 ├── install.sh
+├── profiles/
+│   └── login002.example.json
 ├── requirements.txt
 ├── scripts/
 │   ├── codex-vllm
+│   ├── codex-switch
 │   ├── codex-openai-log
 │   ├── codex_vllm_responses_proxy.py
 │   └── codex_openai_log_proxy.py
@@ -170,6 +223,10 @@ Then look for `function_call` and `function_call_output` items inside the latest
 That is exactly what `codex_vllm_responses_proxy.py` is designed to normalize. Check:
 
 - `~/.local/share/codex-vllm-proxy/logs/proxy.log`
+
+### `/model` does not show your expected model list
+
+Check the config file passed with `--config` or `CODEX_VLLM_MODELS_CONFIG`. The proxy only exposes models defined there.
 
 ### Local web search behavior is unclear
 
