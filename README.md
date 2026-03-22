@@ -95,10 +95,12 @@ chmod +x scripts/codex-vllm scripts/codex-switch scripts/codex-openai-log \
 
 ### 1. Configure multiple upstream models
 
-You can either use the bundled `login002` profile directly, or copy it and edit your own:
+The repo ships with a ready-to-use `login002` profile and uses it by default.
+
+If you want your own variant, copy it and edit:
 
 ```bash
-cp profiles/login002.example.json ~/.config/codex-proxy-kit/login002.json
+cp profiles/login002.json ~/.config/codex-proxy-kit/login002.json
 ```
 
 Example profile:
