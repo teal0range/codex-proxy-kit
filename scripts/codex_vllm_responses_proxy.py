@@ -254,6 +254,23 @@ def rewrite_response_output_for_codex(resp_obj):
     return resp_obj
 
 
+def rewrite_response_model_for_display(resp_obj, requested_model):
+    if not isinstance(resp_obj, dict) or not requested_model:
+        return resp_obj
+    changed = False
+    out = dict(resp_obj)
+    if out.get("model") != requested_model:
+        out["model"] = requested_model
+        changed = True
+    if isinstance(out.get("response"), dict):
+        nested = dict(out["response"])
+        if nested.get("model") != requested_model:
+            nested["model"] = requested_model
+            out["response"] = nested
+            changed = True
+    return out if changed else resp_obj
+
+
 def sse_event(event, data):
     return (f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n").encode("utf-8")
 
@@ -498,6 +515,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                         obj = json.loads(response_body.decode("utf-8"))
                         if route["rewrite_response_output"]:
                             obj = rewrite_response_output_for_codex(obj)
+                        obj = rewrite_response_model_for_display(obj, requested_model)
                         response_body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
                         if client_wants_stream and route["synthesize_stream"]:
                             response_body = build_sse_from_response(obj)
