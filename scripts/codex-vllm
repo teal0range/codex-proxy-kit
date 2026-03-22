@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PROVIDER="${CODEX_VLLM_PROVIDER:-localvllm}"
+ALIAS_MODEL="${CODEX_VLLM_ALIAS_MODEL:-gpt-5.4}"
+TARGET_MODEL="${CODEX_VLLM_TARGET_MODEL:-kimi-k2.5}"
+UPSTREAM="${CODEX_VLLM_UPSTREAM:-http://127.0.0.1:8000}"
+PORT="${CODEX_VLLM_LISTEN_PORT:-18001}"
+LOG_DIR="${CODEX_VLLM_LOG_DIR:-$HOME/.local/share/codex-vllm-proxy/logs}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROXY_BIN="$SCRIPT_DIR/codex_vllm_responses_proxy.py"
+PROXY_PID=
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --provider) PROVIDER="$2"; shift 2 ;;
+    --alias-model) ALIAS_MODEL="$2"; shift 2 ;;
+    --target-model) TARGET_MODEL="$2"; shift 2 ;;
+    --upstream) UPSTREAM="$2"; shift 2 ;;
+    --port) PORT="$2"; shift 2 ;;
+    --) shift; break ;;
+    *) break ;;
+  esac
+done
+
+mkdir -p "$LOG_DIR"
+
+cleanup() {
+  if [[ -n "${PROXY_PID:-}" ]] && kill -0 "$PROXY_PID" 2>/dev/null; then
+    kill "$PROXY_PID" >/dev/null 2>&1 || true
+    wait "$PROXY_PID" >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup EXIT
+
+if ! python3 - <<PY >/dev/null 2>&1
+import socket
+s = socket.socket()
+try:
+    s.connect(("127.0.0.1", int("$PORT")))
+except OSError:
+    raise SystemExit(1)
+else:
+    raise SystemExit(0)
+finally:
+    s.close()
+PY
+then
+  "$PROXY_BIN" \
+    --upstream-base "$UPSTREAM" \
+    --listen-port "$PORT" \
+    --log-dir "$LOG_DIR" \
+    --alias-model "$ALIAS_MODEL" \
+    --target-model "$TARGET_MODEL" &
+  PROXY_PID=$!
+fi
+
+if [[ $# -gt 0 && "$1" == "codex" ]]; then
+  shift
+fi
+
+exec codex \
+  -c "model_provider=\"${PROVIDER}\"" \
+  -c "model_providers.${PROVIDER}.name=\"${PROVIDER}\"" \
+  -c "model_providers.${PROVIDER}.base_url=\"http://127.0.0.1:${PORT}/v1\"" \
+  -c "model_providers.${PROVIDER}.env_key=\"OPENAI_API_KEY\"" \
+  -c 'model_providers.'"${PROVIDER}"'.wire_api="responses"' \
+  -m "$ALIAS_MODEL" \
+  "$@"

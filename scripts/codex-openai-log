@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PORT="${CODEX_OPENAI_LOG_PROXY_PORT:-18021}"
+LOG_ROOT="${CODEX_OPENAI_LOG_PROXY_ROOT:-$HOME/.local/share/codex-openai-log-proxy}"
+LOG_DIR="$LOG_ROOT/logs"
+STDOUT_LOG="$LOG_ROOT/proxy.stdout.log"
+STDERR_LOG="$LOG_ROOT/proxy.stderr.log"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROXY_BIN="$SCRIPT_DIR/codex_openai_log_proxy.py"
+
+mkdir -p "$LOG_DIR"
+
+cleanup() {
+  if [[ -n "${PROXY_PID:-}" ]] && kill -0 "$PROXY_PID" 2>/dev/null; then
+    kill "$PROXY_PID" 2>/dev/null || true
+    wait "$PROXY_PID" 2>/dev/null || true
+  fi
+}
+
+if ! python3 - <<PY >/dev/null 2>&1
+import socket
+s = socket.socket()
+try:
+    s.connect(("127.0.0.1", int("$PORT")))
+except OSError:
+    raise SystemExit(1)
+else:
+    raise SystemExit(0)
+finally:
+    s.close()
+PY
+then
+  nohup "$PROXY_BIN" \
+    --listen-port "$PORT" \
+    --log-dir "$LOG_DIR" \
+    >"$STDOUT_LOG" 2>>"$STDERR_LOG" &
+  PROXY_PID=$!
+  trap cleanup EXIT
+  sleep 1
+fi
+
+exec codex \
+  -c 'model_providers.openai.name="openai"' \
+  -c 'model_providers.openai.wire_api="responses"' \
+  -c 'model_providers.openai.requires_openai_auth=true' \
+  -c "model_providers.openai.base_url=\"http://127.0.0.1:${PORT}/v1\"" \
+  "$@"
